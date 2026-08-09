@@ -41,7 +41,8 @@ def find_extrema(df, distance):
     # 데이터프레임에 고점/저점 여부를 기록할 새로운 컬럼 추가
     df['Is_Peak'] = False
     df['Is_Valley'] = False # 찾은 인덱스 위치에 True 값 부여
-    df.iloc[peaks, df.columns.get_loc('Is_Peak')] = True df.iloc[valleys, df.columns.get_loc('Is_Valley')] = True
+    df.iloc[peaks, df.columns.get_loc('Is_Peak')] = True
+    df.iloc[valleys, df.columns.get_loc('Is_Valley')] = True
 
     return df
 
