@@ -51,66 +51,79 @@ def find_extrema(df, distance):
 # -----------------------------------------------------------------------------
 def detect_patterns(df, peaks, valleys, tolerance):
     """
-    고점과 저점 인덱스를 바탕으로 쌍바닥(W)과 쌍봉(M)을 찾아내는 함수
+    고점과 저점 인덱스를 바탕으로 다양한 형태학적 패턴을 찾아내는 함수
     """
-    patterns = {'double_bottom': [], 'double_top': []}
+    patterns = {'double_bottom': [], 'double_top': [], 'hns': [], 'inv_hns': []}
     
-    # 1. 쌍바닥(Double Bottom - W패턴) 찾기
+    # 1. 쌍바닥 (W)
     for i in range(len(valleys) - 1):
-        v1_idx, v2_idx = valleys[i], valleys[i+1]
-        v1_price, v2_price = df['Low'].iloc[v1_idx], df['Low'].iloc[v2_idx]
-        
-        # 두 저점의 가격 차이가 오차 허용률(%) 이내인지 확인
-        diff_pct = abs(v1_price - v2_price) / v1_price * 100
-        if diff_pct <= tolerance:
-            patterns['double_bottom'].append((v1_idx, v2_idx))
+        v1, v2 = valleys[i], valleys[i+1]
+        if abs(df['Low'].iloc[v1] - df['Low'].iloc[v2]) / df['Low'].iloc[v1] * 100 <= tolerance:
+            patterns['double_bottom'].append((v1, v2))
 
-    # 2. 쌍봉(Double Top - M패턴) 찾기
+    # 2. 쌍봉 (M)
     for i in range(len(peaks) - 1):
-        p1_idx, p2_idx = peaks[i], peaks[i+1]
-        p1_price, p2_price = df['High'].iloc[p1_idx], df['High'].iloc[p2_idx]
-        
-        # 두 고점의 가격 차이가 오차 허용률(%) 이내인지 확인
-        diff_pct = abs(p1_price - p2_price) / p1_price * 100
-        if diff_pct <= tolerance:
-            patterns['double_top'].append((p1_idx, p2_idx))
+        p1, p2 = peaks[i], peaks[i+1]
+        if abs(df['High'].iloc[p1] - df['High'].iloc[p2]) / df['High'].iloc[p1] * 100 <= tolerance:
+            patterns['double_top'].append((p1, p2))
+            
+    # 3. 헤드앤숄더 (고점 3개: 왼쪽어깨 - 머리 - 오른쪽어깨)
+    for i in range(len(peaks) - 2):
+        p1, p2, p3 = peaks[i], peaks[i+1], peaks[i+2]
+        y1, y2, y3 = df['High'].iloc[p1], df['High'].iloc[p2], df['High'].iloc[p3]
+        # 머리(y2)가 양 어깨보다 높고, 양 어깨(y1, y3)의 높이가 오차범위 내로 비슷할 때
+        if y2 > y1 and y2 > y3 and abs(y1 - y3) / y1 * 100 <= tolerance:
+            patterns['hns'].append((p1, p2, p3))
+
+    # 4. 역 헤드앤숄더 (저점 3개: 왼쪽어깨 - 머리 - 오른쪽어깨)
+    for i in range(len(valleys) - 2):
+        v1, v2, v3 = valleys[i], valleys[i+1], valleys[i+2]
+        y1, y2, y3 = df['Low'].iloc[v1], df['Low'].iloc[v2], df['Low'].iloc[v3]
+        # 머리(y2)가 양 어깨보다 낮고, 양 어깨(y1, y3)의 높이가 오차범위 내로 비슷할 때
+        if y2 < y1 and y2 < y3 and abs(y1 - y3) / y1 * 100 <= tolerance:
+            patterns['inv_hns'].append((v1, v2, v3))
             
     return patterns
 
 # -----------------------------------------------------------------------------
 # 4. 모듈: 차트 시각화 엔진 (마커 추가)
 # -----------------------------------------------------------------------------
-
 def draw_candlestick_chart(df, ticker, peaks, valleys, patterns):
     fig = go.Figure(data=[go.Candlestick(
         x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
         name=ticker, increasing_line_color='red', decreasing_line_color='blue'
     )])
 
-    # 고점(초록) / 저점(보라) 마커 표시
+    # 고점/저점 마커
     fig.add_trace(go.Scatter(x=df.index[peaks], y=df['High'].iloc[peaks], mode='markers',
                              marker=dict(symbol='triangle-down', size=10, color='#00ff00'), name='고점'))
     fig.add_trace(go.Scatter(x=df.index[valleys], y=df['Low'].iloc[valleys], mode='markers',
                              marker=dict(symbol='triangle-up', size=10, color='#ff00ff'), name='저점'))
 
-    # 쌍바닥(W) 패턴을 차트 위에 점선으로 연결 (Phase 3 추가 부분)
+    # 쌍바닥 / 쌍봉 그리기
     for v1, v2 in patterns['double_bottom']:
-        fig.add_trace(go.Scatter(
-            x=[df.index[v1], df.index[v2]], y=[df['Low'].iloc[v1], df['Low'].iloc[v2]],
-            mode='lines', line=dict(color='orange', width=2, dash='dot'), name='쌍바닥(W)'
-        ))
-
-    # 쌍봉(M) 패턴을 차트 위에 점선으로 연결 (Phase 3 추가 부분)
+        fig.add_trace(go.Scatter(x=[df.index[v1], df.index[v2]], y=[df['Low'].iloc[v1], df['Low'].iloc[v2]], mode='lines', line=dict(color='orange',          width=2, dash='dot'), name='쌍바닥'))
     for p1, p2 in patterns['double_top']:
+        fig.add_trace(go.Scatter(x=[df.index[p1], df.index[p2]], y=[df['High'].iloc[p1], df['High'].iloc[p2]], mode='lines', line=dict(color='red', width=2, dash='dot'), name='쌍봉'))
+
+    # 헤드앤숄더 그리기 (노란색 선)
+    for p1, p2, p3 in patterns['hns']:
         fig.add_trace(go.Scatter(
-            x=[df.index[p1], df.index[p2]], y=[df['High'].iloc[p1], df['High'].iloc[p2]],
-            mode='lines', line=dict(color='red', width=2, dash='dot'), name='쌍봉(M)'
+            x=[df.index[p1], df.index[p2], df.index[p3]],
+            y=[df['High'].iloc[p1], df['High'].iloc[p2], df['High'].iloc[p3]],
+            mode='lines+markers', line=dict(color='yellow', width=3), name='헤드앤숄더'
         ))
 
-    fig.update_layout(
-        title=f"{ticker} 캔들스틱 및 패턴 분석", yaxis_title="가격", xaxis_title="날짜",
-        template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=20, r=20, t=50, b=20)
-    )
+    # 역 헤드앤숄더 그리기 (하늘색 선)
+    for v1, v2, v3 in patterns['inv_hns']:
+        fig.add_trace(go.Scatter(
+            x=[df.index[v1], df.index[v2], df.index[v3]],
+            y=[df['Low'].iloc[v1], df['Low'].iloc[v2], df['Low'].iloc[v3]],
+            mode='lines+markers', line=dict(color='cyan', width=3), name='역헤드앤숄더'
+        )) 
+
+    fig.update_layout(title=f"{ticker} 패턴 분석", yaxis_title="가격", xaxis_title="날짜", template="plotly_dark", xaxis_rangeslider_visible=False,                 margin=dict(l=20, r=20, t=50, b=20)) 
+
     return fig 
 
 # -----------------------------------------------------------------------------
@@ -187,9 +200,10 @@ def main():
                 # Streamlit에 차트 띄우기
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # 발견된 패턴 개수 화면에 출력 (Phase 3 추가 부분)
-                st.info(f"🔍 발견된 패턴: 쌍바닥(W) {len(patterns['double_bottom'])}개, 쌍봉(M) {len(patterns['double_top'])}개")
-                
+                # 발견된 패턴 개수 화면에 출력 (Phase 4 업데이트)
+                st.info(f"🔍 발견된 패턴: 쌍바닥 {len(patterns['double_bottom'])}개, 쌍봉 {len(patterns['double_top'])}개, "
+                        f"헤드앤숄더 {len(patterns['hns'])}개, 역헤드앤숄더 {len(patterns['inv_hns'])}개")                
+            
             else:
                 st.error("❌ 해당 기간의 데이터를 찾을 수 없거나 종목 코드가 잘못되었습니다. 다시 확인해 주세요.")
 
