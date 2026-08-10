@@ -356,6 +356,34 @@ def analyze_chart_with_gemini(image_bytes, api_key):
             return f"❌ **제미나이 분석 중 알 수 없는 오류 발생:**\n`{error_msg}`"
 
 # -----------------------------------------------------------------------------
+# 4.5. 모듈: 교차 검증 및 브리핑 생성 엔진 (Phase 3)
+# -----------------------------------------------------------------------------
+def generate_mobile_briefing(api_key, math_patterns_found, gemini_has_pattern, confidence):
+    """
+    팩트 데이터(수학+시각 교차 검증 결과)를 바탕으로 3줄 요약 브리핑을 생성하는 함수
+    """
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        prompt = f"""
+        너는 모바일 기기(태블릿/스마트폰) 환경에 맞춰 주식/암호화폐 차트 분석 결과를 '딱 3줄'로 브리핑해주는 수석 트레이더야.
+        
+        [종합된 팩트 데이터]
+        - 알고리즘 탐지 패턴 (트랙 A): {', '.join(math_patterns_found) if math_patterns_found else '없음'}
+        - AI 비전 패턴 인식 여부 (트랙 B): {'인식됨' if gemini_has_pattern else '인식 안 됨'}
+        - 시스템 교차 검증 신뢰도: {confidence}
+        
+        위 팩트를 바탕으로, 투자자가 직관적으로 상황을 파악하고 대응할 수 있도록 3줄짜리 한국어 브리핑을 작성해.
+        인사말이나 부연 설명 절대 없이, 딱 1. 2. 3. 넘버링만 해서 간결하고 엣지있게 출력해줘.
+        """
+        
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"⚠️ 브리핑 생성 중 오류 발생: {str(e)}"
+
+# -----------------------------------------------------------------------------
 # 5. 메인 애플리케이션 로직
 # -----------------------------------------------------------------------------
 def main():
@@ -464,6 +492,45 @@ def main():
                             st.markdown(gemini_result)
                     else:
                         st.info("👈 사이드바에 Gemini API Key를 입력하시면 AI 직관 분석 결과를 볼 수 있습니다.")
+                        gemini_result = None
+
+                # --- [여기서부터 새로 추가되는 Phase 3: 교차 검증 및 브리핑 로직] ---
+                if gemini_api_key and gemini_result:
+                    st.divider()
+                    st.header("🤝 Phase 3: 수학/AI 교차 검증 및 최종 브리핑")
+                    
+                    with st.container():
+                        # 1. 파이썬 수학적 탐지 결과 확인 (패턴 리스트가 비어있지 않으면 True)
+                        math_patterns_found = [k for k, v in patterns.items() if len(v) > 0]
+                        math_has_pattern = len(math_patterns_found) > 0
+                        
+                        # 2. 제미나이 시각적 탐지 결과 확인 (응답 텍스트 내 핵심 패턴 키워드 포함 여부)
+                        pattern_keywords = ['쌍바닥', '쌍봉', '헤드앤숄더', '어센딩', '디센딩', '삼각', '박스권', '깃발', '페넌트']
+                        gemini_has_pattern = any(keyword in gemini_result for keyword in pattern_keywords)
+                        
+                        # 3. 교차 검증(Cross-Validation) 로직: if 조건문
+                        if math_has_pattern and gemini_has_pattern:
+                            confidence = "최상 (수학/AI 교차 검증 일치)"
+                            icon = "🟢"
+                        elif math_has_pattern or gemini_has_pattern:
+                            confidence = "보통 (수학/AI 중 하나만 패턴 감지)"
+                            icon = "🟡"
+                        else:
+                            confidence = "주의 (뚜렷한 패턴 미감지, 횡보/관망 권장)"
+                            icon = "🔴"
+                        
+                        # 4. 결과 출력 및 3줄 브리핑 UI 카드 생성
+                        st.subheader(f"{icon} 시스템 신뢰도: {confidence}")
+                        
+                        with st.spinner("모바일 3줄 브리핑 요약본을 생성하는 중입니다... 📱"):
+                            briefing_text = generate_mobile_briefing(
+                                api_key=gemini_api_key, 
+                                math_patterns_found=math_patterns_found, 
+                                gemini_has_pattern=gemini_has_pattern, 
+                                confidence=confidence
+                            )
+                            # 모바일/태블릿 환경에서 가독성이 좋도록 success 카드로 감싸서 출력
+                            st.success(f"**[전문가 3줄 브리핑]**\n\n{briefing_text}")
 
 # 파이썬 스크립트 실행 진입점
 if __name__ == "__main__":
