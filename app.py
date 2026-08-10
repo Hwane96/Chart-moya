@@ -523,28 +523,40 @@ def main():
                 with col2:
                     st.subheader("👁️ 트랙 B: AI 비전 분석 (유연한 직관)")
                     if gemini_api_key:
-                        with st.spinner("제미나이가 차트를 노려보는 중입니다... 🕵️‍♂️"):
-                            gemini_result = analyze_chart_with_gemini(st.session_state['clean_chart'], gemini_api_key)
-                            st.markdown(gemini_result)
+                        # --- [세션 상태(Session State) 기반 API 중복 호출 방지] ---
+                        # 이전 차트 이미지와 현재 이미지가 다를 때만(새로 고침 되었을 때만) API 호출
+                        if ('last_chart_img' not in st.session_state) or (st.session_state['last_chart_img'] != st.session_state['clean_chart']):
+                            with st.spinner("제미나이가 차트를 노려보는 중입니다... 🕵️‍♂️"):
+                                gemini_result = analyze_chart_with_gemini(st.session_state['clean_chart'], gemini_api_key)
+                                # 결과를 세션에 임시 저장하고 현재 이미지를 '이전 이미지'로 갱신
+                                st.session_state['gemini_result_cache'] = gemini_result
+                                st.session_state['last_chart_img'] = st.session_state['clean_chart']
+                                st.session_state['briefing_cache'] = None # 차트가 바뀌었으니 3줄 브리핑도 초기화
+                        else:
+                            # 이미지가 그대로면 캐싱된 결과 호출 (돈, 시간 절약!)
+                            gemini_result = st.session_state['gemini_result_cache']
+                            st.toast("⚡ 기존 AI 분석 결과를 즉시 불러왔습니다! (API 호출 스킵)")
+                        
+                        st.markdown(gemini_result)
                     else:
                         st.info("👈 사이드바에 Gemini API Key를 입력하시면 AI 직관 분석 결과를 볼 수 있습니다.")
                         gemini_result = None
 
-                # --- [여기서부터 새로 추가되는 Phase 3: 교차 검증 및 브리핑 로직] ---
+                # --- Phase 3: 교차 검증 및 브리핑 로직 ---
                 if gemini_api_key and gemini_result:
                     st.divider()
                     st.header("🤝 Phase 3: 수학/AI 교차 검증 및 최종 브리핑")
                     
                     with st.container():
-                        # 1. 파이썬 수학적 탐지 결과 확인 (패턴 리스트가 비어있지 않으면 True)
+                        # 1. 파이썬 수학적 탐지 결과 확인
                         math_patterns_found = [k for k, v in patterns.items() if len(v) > 0]
                         math_has_pattern = len(math_patterns_found) > 0
                         
-                        # 2. 제미나이 시각적 탐지 결과 확인 (응답 텍스트 내 핵심 패턴 키워드 포함 여부)
+                        # 2. 제미나이 시각적 탐지 결과 확인
                         pattern_keywords = ['쌍바닥', '쌍봉', '헤드앤숄더', '어센딩', '디센딩', '삼각', '박스권', '깃발', '페넌트']
                         gemini_has_pattern = any(keyword in gemini_result for keyword in pattern_keywords)
                         
-                        # 3. 교차 검증(Cross-Validation) 로직: if 조건문
+                        # 3. 교차 검증 신뢰도 판별
                         if math_has_pattern and gemini_has_pattern:
                             confidence = "최상 (수학/AI 교차 검증 일치)"
                             icon = "🟢"
@@ -555,8 +567,23 @@ def main():
                             confidence = "주의 (뚜렷한 패턴 미감지, 횡보/관망 권장)"
                             icon = "🔴"
                         
-                        # 4. 결과 출력 및 3줄 브리핑 UI 카드 생성
                         st.subheader(f"{icon} 시스템 신뢰도: {confidence}")
+                        
+                        # --- [3줄 브리핑 전용 API 중복 호출 방지] ---
+                        if ('briefing_cache' not in st.session_state) or (st.session_state['briefing_cache'] is None):
+                            with st.spinner("모바일 3줄 브리핑 요약본을 생성하는 중입니다... 📱"):
+                                briefing_text = generate_mobile_briefing(
+                                    api_key=gemini_api_key, 
+                                    math_patterns_found=math_patterns_found, 
+                                    gemini_has_pattern=gemini_has_pattern, 
+                                    confidence=confidence
+                                )
+                                st.session_state['briefing_cache'] = briefing_text
+                        else:
+                            briefing_text = st.session_state['briefing_cache']
+
+                        # 4. 최종 출력
+                        st.success(f"**[전문가 3줄 브리핑]**\n\n{briefing_text}")
                         
                         with st.spinner("모바일 3줄 브리핑 요약본을 생성하는 중입니다... 📱"):
                             briefing_text = generate_mobile_briefing(
