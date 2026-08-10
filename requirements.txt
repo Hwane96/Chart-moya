@@ -3,3 +3,4 @@ yfinance
 plotly
 scipy
 numpy
+kaleido==0.2.1
