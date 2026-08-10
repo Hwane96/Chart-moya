@@ -261,17 +261,20 @@ def main():
 
         # (Phase 3 추가) 패턴 오차 허용률 슬라이더
         tolerance = st.slider(
+            "패턴 오차 허용률 (%)", 
+            min_value=0.1, max_value=5.0, value=1.5, step=0.1,
+            help="두 고점/저점의 가격 차이가 이 비율(%) 이내일 때 같은 위치로 간주합니다."
+        )
+        
         st.divider()
         st.subheader("🛠 보조지표 설정")
         show_volume = st.checkbox("거래량 (Volume)", value=True)
-        
         show_sma = st.checkbox("SMA (7, 20, 50, 100일)", value=False)
-        show_ema = st.checkbox("EMA (7, 20, 50, 100일)", value=False)        
+        show_ema = st.checkbox("EMA (7, 20, 50, 100일)", value=False)
         show_ichimoku = st.checkbox("일목균형표 (Ichimoku Cloud)", value=False)
         show_rsi = st.checkbox("RSI (상대강도지수)", value=False)
-        )
-
-        st.write("") # 버튼 위 여백
+        
+        st.write("") # 버튼 위 여백        
         
         # 분석 버튼
         analyze_button = st.button("🚀 분석 시작하기", type="primary", use_container_width=True)
@@ -320,9 +323,6 @@ def main():
                 # 패턴 개수 출력
                 st.info(f"🔍 발견된 패턴: 쌍바닥 {len(patterns['double_bottom'])}개, 쌍봉 {len(patterns['double_top'])}개, "
                         f"헤드앤숄더 {len(patterns['hns'])}개, 역헤드앤숄더 {len(patterns['inv_hns'])}개")
-                
-            else:
-                st.error("❌ 해당 기간의 데이터를 찾을 수 없거나 종목 코드가 잘못되었습니다. 다시 확인해 주세요.")
 
 # 파이썬 스크립트 실행 진입점
 if __name__ == "__main__":
