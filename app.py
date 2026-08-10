@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 from scipy.signal import find_peaks
 import numpy as np
 import io
+import google.generativeai as genai
+form PIL import Image
 
 # -----------------------------------------------------------------------------
 # 1. 앱 기본 설정 (UI 초기화)
@@ -34,6 +36,37 @@ def fetch_data(ticker, start_date, end_date, interval):
 # -----------------------------------------------------------------------------
 # 3. 모듈: 형태학적 패턴 인식 및 보조지표 엔진
 # -----------------------------------------------------------------------------
+def get_zigzag_points(df, peaks, valleys):
+    """
+    독립적으로 찾아낸 고점과 저점을 시간(인덱스) 순으로 정렬하여 
+    하나의 지그재그(ZigZag) 파동 배열로 병합하는 함수
+    반환 형태: [(index, 'peak', price), (index, 'valley', price), ...]
+    """
+    zigzag = []
+    for p in peaks:
+        zigzag.append((p, 'peak', df['High'].iloc[p]))
+    for v in valleys:
+        zigzag.append((v, 'valley', df['Low'].iloc[v]))
+        
+    # 인덱스(시간) 기준으로 오름차순 정렬
+    zigzag.sort(key=lambda x: x[0])
+    
+    # 노이즈 필터링: 연속된 고점이나 저점이 나오면 더 극단적인 값만 남김 (향후 19개 패턴 확장을 위한 필수 작업)
+    filtered_zigzag = []
+    for pt in zigzag:
+        if not filtered_zigzag:
+            filtered_zigzag.append(pt)
+            continue
+            
+        last_pt = filtered_zigzag[-1]
+        if last_pt[1] == pt[1]: # 같은 타입(연속된 고점 or 연속된 저점)일 경우
+            if (pt[1] == 'peak' and pt[2] > last_pt[2]) or (pt[1] == 'valley' and pt[2] < last_pt[2]):
+                filtered_zigzag[-1] = pt # 더 높은 고점이나 더 낮은 저점으로 교체
+        else:
+            filtered_zigzag.append(pt)
+            
+    return filtered_zigzag
+
 def detect_patterns(df, peaks, valleys, tolerance):
     """
     고점과 저점 인덱스를 바탕으로 다양한 형태학적 패턴을 찾아내는 함수
@@ -200,6 +233,38 @@ def draw_candlestick_chart(df, ticker, peaks, valleys, patterns, show_volume, sh
     )
     return fig
 
+# --- 추가할 코드 (차트 시각화 엔진 아래, 메인 로직 위) ---
+def analyze_chart_with_gemini(image_bytes, api_key):
+    """
+    제미나이 1.5 Flash 모델을 사용하여 차트 이미지를 시각적으로 분석하는 함수
+    """
+    if not api_key:
+        return "⚠️ Google API Key가 입력되지 않았습니다."
+        
+    try:
+        # API 키 설정 및 모델 초기화
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # 바이트 데이터를 PIL 이미지로 변환
+        img = Image.open(io.BytesIO(image_bytes))
+        
+        # 프롬프트 설정 (PM님의 기획에 맞춰 수정 가능)
+        prompt = """
+        너는 20년 경력의 수석 트레이더야. 
+        첨부된 차트 이미지는 시각적 노이즈를 제거한 캔들 차트야. 
+        이 차트에서 보이는 캔들스틱 패턴(예: 쌍바닥, 헤드앤숄더, 깃발형, 삼각수렴 등)을 찾아줘.
+        또한 현재의 지지선과 저항선을 파악하고, 향후 가격 이동 방향에 대한 단기적인 직관적 의견을 제시해 줘.
+        답변은 마크다운 형식으로 보기 쉽게 정리해 줘.
+        """
+        
+        # 제미나이 API 호출 (이미지와 텍스트 동시 전송)
+        response = model.generate_content([prompt, img])
+        return response.text
+        
+    except Exception as e:
+        return f"❌ 제미나이 분석 중 오류가 발생했습니다: {e}"
+
 # -----------------------------------------------------------------------------
 # 5. 메인 애플리케이션 로직
 # -----------------------------------------------------------------------------
@@ -210,6 +275,10 @@ def main():
     
     # UI: 사이드바 패널 (입력 폼)
     with st.sidebar:
+        st.header("🔑 AI 분석 설정")
+        gemini_api_key = st.text_input("Google Gemini API Key", type="password", help="트랙 B(AI 직관 분석)를 위해 필요합니다.")
+        st.divider()
+
         st.header("📊 분석 설정")
         ticker = st.text_input("종목 코드 입력", value="BTC-USD")
         interval = st.selectbox("캔들 시간대", options=["1d", "1wk", "1mo", "1h", "15m", "5m"], index=0)
@@ -266,13 +335,35 @@ def main():
                 # 4단계: 차트 그리기
                 fig = draw_candlestick_chart(df, ticker, peaks, valleys, patterns,
                                              show_volume, show_sma, show_ema, show_ichimoku, show_rsi)
-                                             
+                
                 # Streamlit에 차트 띄우기
                 st.plotly_chart(fig, use_container_width=True)
                 
                 # 패턴 개수 출력
                 st.info(f"🔍 발견된 패턴: 쌍바닥 {len(patterns['double_bottom'])}개, 쌍봉 {len(patterns['double_top'])}개, "
                         f"헤드앤숄더 {len(patterns['hns'])}개, 역헤드앤숄더 {len(patterns['inv_hns'])}개")
+                
+                # --- 여기서부터 새로 추가되는 투트랙 화면 분할 코드 ---
+                st.divider()
+                col1, col2 = st.columns(2)
+                
+                # 트랙 A (차가운 이성: 알고리즘)
+                with col1:
+                    st.subheader("🤖 트랙 A: 알고리즘 분석 (차가운 이성)")
+                    # Step 3에서 만든 ZigZag 함수 호출
+                    zigzag = get_zigzag_points(df, peaks, valleys)
+                    st.write("📊 **추출된 주요 파동(ZigZag) 개수:**", len(zigzag), "개")
+                    st.success("수학적 형태학 패턴 분석이 완료되었습니다. (현재 메이저 4개 패턴 감지 중, 추가 15개 패턴 업데이트 대기 중)")
+                
+                # 트랙 B (유연한 직관: Gemini)
+                with col2:
+                    st.subheader("👁️ 트랙 B: AI 비전 분석 (유연한 직관)")
+                    if gemini_api_key:
+                        with st.spinner("제미나이가 차트를 노려보는 중입니다... 🕵️‍♂️"):
+                            gemini_result = analyze_chart_with_gemini(st.session_state['clean_chart'], gemini_api_key)
+                            st.markdown(gemini_result)
+                    else:
+                        st.info("👈 사이드바에 Gemini API Key를 입력하시면 AI 직관 분석 결과를 볼 수 있습니다.")
 
 # 파이썬 스크립트 실행 진입점
 if __name__ == "__main__":
