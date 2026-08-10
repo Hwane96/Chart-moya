@@ -268,6 +268,17 @@ def draw_candlestick_chart(df, ticker, peaks, valleys, patterns, show_volume, sh
     for v1, v2, v3 in patterns['inv_hns']:
         fig.add_trace(go.Scatter(x=[df.index[v1], df.index[v2], df.index[v3]], y=[df['Low'].iloc[v1], df['Low'].iloc[v2], df['Low'].iloc[v3]], mode='lines+markers', line=dict(color='cyan', width=3), name='역헤드앤숄더'))
         
+    # --- 새로 추가되는 수렴형 및 지속형 패턴 시각화 (추세선 그리기) ---
+    # 수렴형 패턴 (어센딩, 디센딩, 대칭 삼각수렴) - 보라색 실선 추세선
+    for p1, p2, v1, v2 in patterns['asc_triangle'] + patterns['desc_triangle'] + patterns['sym_triangle']:
+        fig.add_trace(go.Scatter(x=[df.index[p1], df.index[p2]], y=[df['High'].iloc[p1], df['High'].iloc[p2]], mode='lines', line=dict(color='#E040FB', width=2), name='상단 추세선'))
+        fig.add_trace(go.Scatter(x=[df.index[v1], df.index[v2]], y=[df['Low'].iloc[v1], df['Low'].iloc[v2]], mode='lines', line=dict(color='#E040FB', width=2), name='하단 추세선'))
+        
+    # 지속형 패턴 (박스권, 깃발형, 페넌트) - 연두색 점선 채널
+    for p1, p2, v1, v2 in patterns['rectangle'] + patterns['flag'] + patterns['pennant']:
+        fig.add_trace(go.Scatter(x=[df.index[p1], df.index[p2]], y=[df['High'].iloc[p1], df['High'].iloc[p2]], mode='lines', line=dict(color='#69F0AE', width=2, dash='dash'), name='채널 상단'))
+        fig.add_trace(go.Scatter(x=[df.index[v1], df.index[v2]], y=[df['Low'].iloc[v1], df['Low'].iloc[v2]], mode='lines', line=dict(color='#69F0AE', width=2, dash='dash'), name='채널 하단'))
+        
     # 4. 선택형 보조지표 레이어 추가
     if show_sma:
         if 'SMA_7' in df.columns: fig.add_trace(go.Scatter(x=df.index, y=df['SMA_7'], mode='lines', line=dict(color='#FFF59D', width=1), name='SMA(7)'))
@@ -318,21 +329,31 @@ def analyze_chart_with_gemini(image_bytes, api_key):
         # 바이트 데이터를 PIL 이미지로 변환
         img = Image.open(io.BytesIO(image_bytes))
         
-        # 프롬프트 설정 (PM님의 기획에 맞춰 수정 가능)
+        # 프롬프트 고도화 (입체적 분석 및 실전 트레이딩 셋업 고려)
         prompt = """
-        너는 20년 경력의 수석 트레이더야. 
+        너는 20년 경력의 금융자산(암호화폐, 외환, 주식 및 선물) 전문 트레이더야. 
         첨부된 차트 이미지는 시각적 노이즈를 제거한 캔들 차트야. 
-        이 차트에서 보이는 캔들스틱 패턴(예: 쌍바닥, 헤드앤숄더, 깃발형, 삼각수렴 등)을 찾아줘.
-        또한 현재의 지지선과 저항선을 파악하고, 향후 가격 이동 방향에 대한 단기적인 직관적 의견을 제시해 줘.
-        답변은 마크다운 형식으로 보기 쉽게 정리해 줘.
+        이 차트에서 보이는 캔들스틱 패턴(특히 헤드앤숄더, 쌍바닥, 쌍봉 등)을 형태학적으로 분석해줘.
+        또한, 차트의 흐름을 바탕으로 RSI, Stochastic RSI, Parabolic SAR 같은 주요 모멘텀 지표들이 
+        현재 어떤 상태일지 유추해서 함께 설명해 줘. 
+        마지막으로 이 차트 상황에서 그리드 매매(Grid Trading) 셋업을 한다면 
+        어느 구간에 거미줄(매수/매도 벽)을 치는 것이 유리할지 주요 지지선과 저항선을 기반으로 단기적인 직관적 의견을 제시해 줘.
+        답변은 마크다운 형식으로 가독성 좋게 정리해 줘.
         """
         
         # 제미나이 API 호출 (이미지와 텍스트 동시 전송)
         response = model.generate_content([prompt, img])
         return response.text
         
+    # API Rate Limit 또는 기타 인증 오류 방어 로직 강화
     except Exception as e:
-        return f"❌ 제미나이 분석 중 오류가 발생했습니다: {e}"
+        error_msg = str(e)
+        if "429" in error_msg or "quota" in error_msg.lower():
+            return "⚠️ **API 요청 한도 초과(Rate Limit):** 너무 많은 요청이 발생했습니다. 잠시 후 다시 시도해 주세요."
+        elif "API_KEY_INVALID" in error_msg or "key" in error_msg.lower():
+            return "❌ **잘못된 API Key:** Google Gemini API Key를 다시 확인해 주세요."
+        else:
+            return f"❌ **제미나이 분석 중 알 수 없는 오류 발생:**\n`{error_msg}`"
 
 # -----------------------------------------------------------------------------
 # 5. 메인 애플리케이션 로직
