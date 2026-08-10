@@ -6,7 +6,7 @@ from scipy.signal import find_peaks
 import numpy as np
 import io
 import google.generativeai as genai
-form PIL import Image
+from PIL import Image
 
 # -----------------------------------------------------------------------------
 # 1. 앱 기본 설정 (UI 초기화)
@@ -316,7 +316,7 @@ def draw_candlestick_chart(df, ticker, peaks, valleys, patterns, show_volume, sh
 # --- 추가할 코드 (차트 시각화 엔진 아래, 메인 로직 위) ---
 def analyze_chart_with_gemini(image_bytes, api_key):
     """
-    제미나이 1.5 Flash 모델을 사용하여 차트 이미지를 시각적으로 분석하는 함수
+    제미나이 3.5 Flash-Lite 모델을 사용하여 차트 이미지를 시각적으로 분석하는 함수
     """
     if not api_key:
         return "⚠️ Google API Key가 입력되지 않았습니다."
@@ -331,13 +331,13 @@ def analyze_chart_with_gemini(image_bytes, api_key):
         
         # 프롬프트 고도화 (입체적 분석 및 실전 트레이딩 셋업 고려)
         prompt = """
-        너는 20년 경력의 금융자산(암호화폐, 외환, 주식 및 선물) 전문 트레이더야. 
+        너는 20년 경력의 금융자산(암호화폐, 주식, 선물, 외환) 전문 트레이더야. 
         첨부된 차트 이미지는 시각적 노이즈를 제거한 캔들 차트야. 
         이 차트에서 보이는 캔들스틱 패턴(특히 헤드앤숄더, 쌍바닥, 쌍봉 등)을 형태학적으로 분석해줘.
-        또한, 차트의 흐름을 바탕으로 RSI, Stochastic RSI, Parabolic SAR 같은 주요 모멘텀 지표들이 
+        또한, 차트의 흐름을 바탕으로 RSI, EMA, SMA, 거래량 같은 주요 모멘텀 지표들이 
         현재 어떤 상태일지 유추해서 함께 설명해 줘. 
-        마지막으로 이 차트 상황에서 그리드 매매(Grid Trading) 셋업을 한다면 
-        어느 구간에 거미줄(매수/매도 벽)을 치는 것이 유리할지 주요 지지선과 저항선을 기반으로 단기적인 직관적 의견을 제시해 줘.
+        마지막으로 이 차트 상황에서 분할 매매 셋업을 한다면 
+        어느 구간에 분할 구간(매수/매도 벽)을 치는 것이 유리할지 주요 지지선과 저항선을 기반으로 단기적인 직관적 의견을 제시해 줘.
         답변은 마크다운 형식으로 가독성 좋게 정리해 줘.
         """
         
