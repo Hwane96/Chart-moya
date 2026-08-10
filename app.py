@@ -71,7 +71,11 @@ def detect_patterns(df, peaks, valleys, tolerance):
     """
     고점과 저점 인덱스를 바탕으로 다양한 형태학적 패턴을 찾아내는 함수
     """
-    patterns = {'double_bottom': [], 'double_top': [], 'hns': [], 'inv_hns': []}
+    # 트라이앵글(삼각수렴) 패턴 3종을 담을 공간 추가
+    patterns = {
+        'double_bottom': [], 'double_top': [], 'hns': [], 'inv_hns': [],
+        'asc_triangle': [], 'desc_triangle': [], 'sym_triangle': []
+    }
     
     # 1. 쌍바닥 (W)
     for i in range(len(valleys) - 1):
@@ -99,6 +103,39 @@ def detect_patterns(df, peaks, valleys, tolerance):
         if y2 < y1 and y2 < y3 and abs(y1 - y3) / y1 * 100 <= tolerance:
             patterns['inv_hns'].append((v1, v2, v3))
             
+    # 5. 어센딩 트라이앵글 (고점은 수평 저항, 저점은 상승 지지)
+    for i in range(len(peaks) - 1):
+        for j in range(len(valleys) - 1):
+            p1, p2 = peaks[i], peaks[i+1]
+            v1, v2 = valleys[j], valleys[j+1]
+            # 파동이 시간상으로 겹치는지 대략 확인
+            if p1 < v2 and v1 < p2: 
+                # 고점은 오차율 이내로 비슷하고, 저점은 오차율 이상으로 확실히 상승할 때
+                if abs(df['High'].iloc[p1] - df['High'].iloc[p2]) / df['High'].iloc[p1] * 100 <= tolerance:
+                    if df['Low'].iloc[v2] > df['Low'].iloc[v1] * (1 + tolerance/100):
+                        patterns['asc_triangle'].append((p1, p2, v1, v2))
+                        
+    # 6. 디센딩 트라이앵글 (고점은 하락 저항, 저점은 수평 지지)
+    for i in range(len(peaks) - 1):
+        for j in range(len(valleys) - 1):
+            p1, p2 = peaks[i], peaks[i+1]
+            v1, v2 = valleys[j], valleys[j+1]
+            if p1 < v2 and v1 < p2:
+                # 저점은 오차율 이내로 비슷하고, 고점은 확실히 하락할 때
+                if abs(df['Low'].iloc[v1] - df['Low'].iloc[v2]) / df['Low'].iloc[v1] * 100 <= tolerance:
+                    if df['High'].iloc[p2] < df['High'].iloc[p1] * (1 - tolerance/100):
+                        patterns['desc_triangle'].append((p1, p2, v1, v2))
+                        
+    # 7. 대칭 삼각수렴 (고점은 하락 저항, 저점은 상승 지지)
+    for i in range(len(peaks) - 1):
+        for j in range(len(valleys) - 1):
+            p1, p2 = peaks[i], peaks[i+1]
+            v1, v2 = valleys[j], valleys[j+1]
+            if p1 < v2 and v1 < p2:
+                if df['High'].iloc[p2] < df['High'].iloc[p1] * (1 - tolerance/100):
+                    if df['Low'].iloc[v2] > df['Low'].iloc[v1] * (1 + tolerance/100):
+                        patterns['sym_triangle'].append((p1, p2, v1, v2))
+                        
     return patterns
 
 def add_indicators(df):
@@ -346,9 +383,11 @@ def main():
                 # Streamlit에 차트 띄우기
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # 패턴 개수 출력
-                st.info(f"🔍 발견된 패턴: 쌍바닥 {len(patterns['double_bottom'])}개, 쌍봉 {len(patterns['double_top'])}개, "
-                        f"헤드앤숄더 {len(patterns['hns'])}개, 역헤드앤숄더 {len(patterns['inv_hns'])}개")
+                # 패턴 개수 출력 (수렴형 패턴 추가)
+                st.info(f"🔍 발견된 반전 패턴: 쌍바닥 {len(patterns['double_bottom'])}개, 쌍봉 {len(patterns['double_top'])}개, "
+                        f"헤드앤숄더 {len(patterns['hns'])}개, 역헤드앤숄더 {len(patterns['inv_hns'])}개\n\n"
+                        f"📐 발견된 수렴 패턴: 어센딩 {len(patterns['asc_triangle'])}개, 디센딩 {len(patterns['desc_triangle'])}개, "
+                        f"대칭삼각 {len(patterns['sym_triangle'])}개")
                 
                 # --- 여기서부터 새로 추가되는 투트랙 화면 분할 코드 ---
                 st.divider()
