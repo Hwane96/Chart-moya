@@ -325,12 +325,19 @@ def main():
                 st.session_state['clean_chart'] = clean_image_bytes
                 st.toast("✅ 제미나이 시각 분석용 캔들 캡처가 백그라운드에서 완료되었습니다!")
                 
-                # 2단계: 고점과 저점 찾기
-                peaks, _ = find_peaks(df['High'], prominence=prominence)
-                valleys, _ = find_peaks(-df['Low'], prominence=prominence)
+                # 2단계: 고점과 저점 찾기 (1차 추출)
+                raw_peaks, _ = find_peaks(df['High'], prominence=prominence)
+                raw_valleys, _ = find_peaks(-df['Low'], prominence=prominence)
                 
-                # 3단계: 패턴 찾기
-                patterns = detect_patterns(df, peaks, valleys, tolerance)
+                # 지그재그(ZigZag) 파동 배열 생성 및 노이즈 필터링 적용
+                zigzag = get_zigzag_points(df, raw_peaks, raw_valleys)
+                
+                # 정제된 지그재그 배열에서 '진짜' 고점/저점 인덱스만 다시 추출
+                peaks = [pt[0] for pt in zigzag if pt[1] == 'peak']
+                valleys = [pt[0] for pt in zigzag if pt[1] == 'valley']
+                
+                # 3단계: 패턴 찾기 (노이즈가 제거된 핵심 파동 위주로 탐색)
+                patterns = detect_patterns(df, peaks, valleys, tolerance)                
                 
                 # 4단계: 차트 그리기
                 fig = draw_candlestick_chart(df, ticker, peaks, valleys, patterns,
@@ -350,8 +357,6 @@ def main():
                 # 트랙 A (차가운 이성: 알고리즘)
                 with col1:
                     st.subheader("🤖 트랙 A: 알고리즘 분석 (차가운 이성)")
-                    # Step 3에서 만든 ZigZag 함수 호출
-                    zigzag = get_zigzag_points(df, peaks, valleys)
                     st.write("📊 **추출된 주요 파동(ZigZag) 개수:**", len(zigzag), "개")
                     st.success("수학적 형태학 패턴 분석이 완료되었습니다. (현재 메이저 4개 패턴 감지 중, 추가 15개 패턴 업데이트 대기 중)")
                 
