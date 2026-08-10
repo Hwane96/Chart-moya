@@ -316,7 +316,7 @@ def draw_candlestick_chart(df, ticker, peaks, valleys, patterns, show_volume, sh
 # --- 추가할 코드 (차트 시각화 엔진 아래, 메인 로직 위) ---
 def analyze_chart_with_gemini(image_bytes, api_key):
     """
-    제미나이 3.5 Flash-Lite 모델을 사용하여 차트 이미지를 시각적으로 분석하는 함수
+    제미나이 1.5 Flash 모델을 사용하여 차트 이미지를 시각적으로 분석하는 함수
     """
     if not api_key:
         return "⚠️ Google API Key가 입력되지 않았습니다."
@@ -452,7 +452,8 @@ def main():
                 with col1:
                     st.subheader("🤖 트랙 A: 알고리즘 분석 (차가운 이성)")
                     st.write("📊 **추출된 주요 파동(ZigZag) 개수:**", len(zigzag), "개")
-                    st.success("수학적 형태학 패턴 분석이 완료되었습니다. (현재 메이저 4개 패턴 감지 중, 추가 15개 패턴 업데이트 대기 중)")
+                    # 안내 문구의 숫자(4개 -> 10개, 15개 -> 9개)를 업데이트
+                    st.success("수학적 형태학 패턴 분석이 완료되었습니다. (현재 메이저 10개 패턴 감지 중, 추가 9개 패턴 업데이트 대기 중)")
                 
                 # 트랙 B (유연한 직관: Gemini)
                 with col2:
