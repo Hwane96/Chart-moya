@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import scipy.signal as signal
 import numpy as np
+import io
 
 # -----------------------------------------------------------------------------
 # 1. 앱 기본 설정 (UI 초기화) 
@@ -126,6 +127,29 @@ def draw_candlestick_chart(df, ticker, peaks, valleys, patterns):
 
     return fig 
 
+def generate_clean_chart_image(df):
+    """
+    제미나이 시각 분석을 위한 노이즈 없는 깔끔한 캔들 차트 캡처본 생성
+    """
+    fig = go.Figure(data=[go.Candlestick(
+        x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
+        increasing_line_color='red', decreasing_line_color='blue'
+    )])
+    
+    # 축, 텍스트, 여백 등 시각적 노이즈 완전 제거
+    fig.update_layout(
+        xaxis=dict(visible=False, rangeslider=dict(visible=False)),
+        yaxis=dict(visible=False),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        margin=dict(l=0, r=0, t=0, b=0)
+    )
+    
+    # 이미지를 바이트(Bytes)로 변환 (이후 제미나이 API 프롬프트에 바로 삽입 가능)
+    # Streamlit Cloud 배포 시 requirements.txt에 'kaleido' 패키지 추가 필수!
+    img_bytes = fig.to_image(format="png", width=800, height=600)
+    return img_bytes
+
 # -----------------------------------------------------------------------------
 # 5. 메인 애플리케이션 로직
 # -----------------------------------------------------------------------------
@@ -200,6 +224,11 @@ def main():
                 # Streamlit에 차트 띄우기
                 st.plotly_chart(fig, use_container_width=True)
                 
+                # --- Phase 1 추가: 제미나이용 클린 이미지 백그라운드 생성 ---
+                clean_image_bytes = generate_clean_chart_image(df)
+                st.session_state['clean_chart'] = clean_image_bytes
+                st.toast("✅ 제미나이 시각 분석용 캔들 캡처가 백그라운드에서 완료되었습니다!")
+
                 # 발견된 패턴 개수 화면에 출력 (Phase 4 업데이트)
                 st.info(f"🔍 발견된 패턴: 쌍바닥 {len(patterns['double_bottom'])}개, 쌍봉 {len(patterns['double_top'])}개, "
                         f"헤드앤숄더 {len(patterns['hns'])}개, 역헤드앤숄더 {len(patterns['inv_hns'])}개")                
