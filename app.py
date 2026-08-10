@@ -14,6 +14,37 @@ from PIL import Image
 st.set_page_config(page_title="차트 모야", page_icon="📈", layout="wide")
 
 # -----------------------------------------------------------------------------
+# 1.5. 모듈: 모바일/태블릿(탭 S7 등) UI 반응형 CSS 최적화
+# -----------------------------------------------------------------------------
+def inject_custom_css():
+    st.markdown("""
+        /* 1. 전체 화면 여백 축소 (작은 화면에서 공간 낭비 방지) */
+        .block-container {
+            padding-top: 2rem !important;
+            padding-bottom: 2rem !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
+
+        /* 2. 태블릿(세로) 및 모바일 기기에서 컬럼을 강제로 위아래 100% 폭으로 배치 */
+        @media (max-width: 992px) {
+            [data-testid="column"] 
+                width: 100% !important;
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+                margin-bottom: 1rem;
+            }
+        }
+
+        /* 3. 3줄 브리핑 결과 카드(Success Box)의 텍스트 가독성 및 자간 조정 */
+        div[data-testid="stAlert"] {
+            font-size: 1.05rem;
+            line-height: 1.7;
+        }
+    
+    """, unsafe_allow_html=True) 
+
+# -----------------------------------------------------------------------------
 # 2. 모듈: 데이터 수집 엔진 (캐싱 및 1차 예외처리 적용)
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=900) # 15분(900초)마다 캐시 갱신
@@ -374,10 +405,14 @@ def generate_mobile_briefing(api_key, math_patterns_found, gemini_has_pattern, c
         - AI 비전 패턴 인식 여부 (트랙 B): {'인식됨' if gemini_has_pattern else '인식 안 됨'}
         - 시스템 교차 검증 신뢰도: {confidence}
         
-        위 팩트를 바탕으로, 투자자가 직관적으로 상황을 파악하고 대응할 수 있도록 3줄짜리 한국어 브리핑을 작성해.
-        인사말이나 부연 설명 절대 없이, 딱 1. 2. 3. 넘버링만 해서 간결하고 엣지있게 출력해줘.
-        """
+        위 팩트 데이터를 바탕으로 다음 조건에 맞춰 3줄짜리 한국어 브리핑을 작성해.
+        1. 첫 번째 줄: 현재 차트에서 두드러지는 핵심 패턴(헤드앤숄더, 쌍바닥 등)과 전체적인 추세 방향 요약
+        2. 두 번째 줄: 차트 흐름을 통해 유추해 본 5대 핵심 보조지표(RSI, 일목균형표, EMA, SMA, 거래량)의 현재 상태 추정
+        3. 세 번째 줄: 주요 지지선과 저항선을 기반으로, 3분할 매매를 진행할 경우 가장 유리한 1차, 2차, 3차 진입 및 청산 예상 가격대 제시
         
+        인사말이나 부연 설명 절대 없이, 딱 1. 2. 3. 넘버링만 해서 간결하고 엣지있게 출력해.
+        """
+     
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
@@ -387,6 +422,7 @@ def generate_mobile_briefing(api_key, math_patterns_found, gemini_has_pattern, c
 # 5. 메인 애플리케이션 로직
 # -----------------------------------------------------------------------------
 def main():
+    inject_custom_css() # <-- 이 줄을 추가해 주세요 (모바일 UI 최적화 실행)
     st.title("📈 차트 모야 - 형태학적 패턴 분석기")
     st.markdown("수학적 알고리즘(`SciPy`)을 통해 캔들의 의미 있는 **고점과 저점(Local Extrema)**을 정밀하게 추출합니다.")
     st.divider()
