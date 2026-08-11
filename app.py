@@ -7,6 +7,8 @@ import numpy as np
 import io
 import google.generativeai as genai
 from PIL import Image
+import base64
+import time
 
 # -----------------------------------------------------------------------------
 # 1. 앱 기본 설정 (UI 초기화)
@@ -616,4 +618,37 @@ def main():
 
 # 파이썬 스크립트 실행 진입점
 if __name__ == "__main__":
-    main()
+    # 앱이 처음 실행되어 'splash_shown' 상태가 없을 때만 스플래시 동작
+    if 'splash_shown' not in st.session_state:
+        # 스플래시 화면용 빈 컨테이너 생성
+        splash_placeholder = st.empty()
+        
+        with splash_placeholder.container():
+            # 스플래시가 뜨는 동안 사이드바와 상단 헤더를 숨겨서 앱처럼 보이게 하는 CSS
+            st.markdown(
+                """
+                <style>
+                [data-testid="stSidebar"] {display: none !important;}
+                header {visibility: hidden !important;}
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            # 이미지를 중앙에 적절한 크기로 배치하기 위한 레이아웃 분할
+            st.write("") # 상단 여백
+            st.write("")
+            col1, col2, col3 = st.columns([1, 1.5, 1])
+            with col2:
+                # PM님이 전달해준 파일명 그대로 사용! 
+                st.image("차트 모야 스플래시.jpg", use_column_width=True)
+        
+        # 2.5초 동안 이미지 노출 대기 (필요시 숫자 수정 가능)
+        time.sleep(2.5)
+        
+        # 스플래시 시청 완료 처리 후 스트림릿 화면 새로고침
+        st.session_state['splash_shown'] = True
+        st.rerun()
+    else:
+        # 스플래시 시청이 완료된 상태라면 메인 앱 로직 실행
+        main()
