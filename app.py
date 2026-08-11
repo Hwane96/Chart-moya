@@ -345,17 +345,16 @@ def draw_candlestick_chart(df, ticker, peaks, valleys, patterns, show_volume, sh
     return fig
 
 # --- 추가할 코드 (차트 시각화 엔진 아래, 메인 로직 위) ---
-def analyze_chart_with_gemini(image_bytes, api_key):
+def analyze_chart_with_gemini(image_bytes, api_key, model_name="gemini-1.5-flash"):
     """
-    제미나이 1.5 Flash 모델을 사용하여 차트 이미지를 시각적으로 분석하는 함수
+    제미나이 모델을 사용하여 차트 이미지를 시각적으로 분석하는 함수
     """
     if not api_key:
         return "⚠️ Google API Key가 입력되지 않았습니다."
-        
     try:
         # API 키 설정 및 모델 초기화
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel(model_name)
         
         # 바이트 데이터를 PIL 이미지로 변환
         img = Image.open(io.BytesIO(image_bytes))
@@ -389,13 +388,13 @@ def analyze_chart_with_gemini(image_bytes, api_key):
 # -----------------------------------------------------------------------------
 # 4.5. 모듈: 교차 검증 및 브리핑 생성 엔진 (Phase 3)
 # -----------------------------------------------------------------------------
-def generate_mobile_briefing(api_key, math_patterns_found, gemini_has_pattern, confidence):
+def generate_mobile_briefing(api_key, math_patterns_found, gemini_has_pattern, confidence, model_name="gemini-1.5-flash"):
     """
     팩트 데이터(수학+시각 교차 검증 결과)를 바탕으로 3줄 요약 브리핑을 생성하는 함수
     """
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel(model_name)
         
         prompt = f"""
         너는 모바일 기기(태블릿/스마트폰) 환경에 맞춰 주식/암호화폐 차트 분석 결과를 '딱 3줄'로 브리핑해주는 수석 트레이더야.
@@ -419,6 +418,26 @@ def generate_mobile_briefing(api_key, math_patterns_found, gemini_has_pattern, c
         return f"⚠️ 브리핑 생성 중 오류 발생: {str(e)}"
 
 # -----------------------------------------------------------------------------
+# 4.8. 모듈: 수익화(BM) 및 광고 배너 엔진 (Phase 4)
+# -----------------------------------------------------------------------------
+def show_ad_banner():
+    """
+    무료 유저에게 노출되는 제휴 배너 (바이비트, 트레이딩뷰 등)
+    """
+    st.markdown("""
+        <div style="text-align: center; margin-top: 30px; margin-bottom: 20px; padding: 15px; border: 1px solid #444; border-radius: 8px; background-color: #1e1e1e;">
+            <p style="color: #888; font-size: 0.8em; margin-bottom: 5px;">Advertisement</p>
+            <a href="https://www.bybit.com/" target="_blank" style="text-decoration: none;">
+                <!-- 실제 배너 이미지 URL로 교체 가능 -->
+                <img src="https://via.placeholder.com/728x90.png?text=Bybit+Referral+Banner+-+Trade+Crypto" alt="Bybit Ad" style="max-width: 100%; border-radius: 5px;">
+            </a>
+            <p style="margin-top: 10px; font-size: 0.9em;">
+                🚀 <a href="https://www.tradingview.com/" target="_blank" style="color: #4CAF50; text-decoration: none; font-weight: bold;">트레이딩뷰 프리미엄 가입하고 혜택받기</a>
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+
+# -----------------------------------------------------------------------------
 # 5. 메인 애플리케이션 로직
 # -----------------------------------------------------------------------------
 def main():
@@ -427,12 +446,19 @@ def main():
     st.markdown("수학적 알고리즘(`SciPy`)을 통해 캔들의 의미 있는 **고점과 저점(Local Extrema)**을 정밀하게 추출합니다.")
     st.divider()
     
-    # UI: 사이드바 패널 (입력 폼)
+   # UI: 사이드바 패널 (입력 폼)
     with st.sidebar:
         st.header("🔑 AI 분석 설정")
         gemini_api_key = st.text_input("Google Gemini API Key", type="password", help="트랙 B(AI 직관 분석)를 위해 필요합니다.")
+        
+        # --- [Phase 4: 유저 등급 선택 UI 추가] ---
         st.divider()
-
+        st.header("💎 멤버십 설정")
+        user_tier = st.radio("유저 등급 선택 (가상)", ["Free (광고O, Flash모델)", "Premium (광고X, Pro모델)"])
+        # 등급에 따른 모델 동적 할당
+        selected_model = "gemini-1.5-pro" if "Premium" in user_tier else "gemini-1.5-flash"
+        
+        st.divider()
         st.header("📊 분석 설정")
         ticker = st.text_input("종목 코드 입력", value="BTC-USD")
         interval = st.selectbox("캔들 시간대", options=["1d", "1wk", "1mo", "1h", "15m", "5m"], index=0)
@@ -526,27 +552,24 @@ def main():
                         # --- [세션 상태(Session State) 기반 API 중복 호출 방지] ---
                         # 이전 차트 이미지와 현재 이미지가 다를 때만(새로 고침 되었을 때만) API 호출
                         if ('last_chart_img' not in st.session_state) or (st.session_state['last_chart_img'] != st.session_state['clean_chart']):
-                            with st.spinner("제미나이가 차트를 노려보는 중입니다... 🕵️‍♂️"):
-                                gemini_result = analyze_chart_with_gemini(st.session_state['clean_chart'], gemini_api_key)
-                                # 결과를 세션에 임시 저장하고 현재 이미지를 '이전 이미지'로 갱신
+                            with st.spinner(f"제미나이({selected_model})가 차트를 노려보는 중입니다... 🕵️‍♂️"):
+                                # 2단계에서 수정한 모델 변경 파라미터 적용
+                                gemini_result = analyze_chart_with_gemini(st.session_state['clean_chart'], gemini_api_key, selected_model)
                                 st.session_state['gemini_result_cache'] = gemini_result
                                 st.session_state['last_chart_img'] = st.session_state['clean_chart']
-                                st.session_state['briefing_cache'] = None # 차트가 바뀌었으니 3줄 브리핑도 초기화
+                                st.session_state['briefing_cache'] = None 
                         else:
-                            # 이미지가 그대로면 캐싱된 결과 호출 (돈, 시간 절약!)
                             gemini_result = st.session_state['gemini_result_cache']
                             st.toast("⚡ 기존 AI 분석 결과를 즉시 불러왔습니다! (API 호출 스킵)")
-                        
                         st.markdown(gemini_result)
                     else:
                         st.info("👈 사이드바에 Gemini API Key를 입력하시면 AI 직관 분석 결과를 볼 수 있습니다.")
                         gemini_result = None
-
+                        
                 # --- Phase 3: 교차 검증 및 브리핑 로직 ---
                 if gemini_api_key and gemini_result:
                     st.divider()
                     st.header("🤝 Phase 3: 수학/AI 교차 검증 및 최종 브리핑")
-                    
                     with st.container():
                         # 1. 파이썬 수학적 탐지 결과 확인
                         math_patterns_found = [k for k, v in patterns.items() if len(v) > 0]
@@ -566,7 +589,7 @@ def main():
                         else:
                             confidence = "주의 (뚜렷한 패턴 미감지, 횡보/관망 권장)"
                             icon = "🔴"
-                        
+                            
                         st.subheader(f"{icon} 시스템 신뢰도: {confidence}")
                         
                         # --- [3줄 브리핑 전용 API 중복 호출 방지] ---
@@ -576,24 +599,19 @@ def main():
                                     api_key=gemini_api_key, 
                                     math_patterns_found=math_patterns_found, 
                                     gemini_has_pattern=gemini_has_pattern, 
-                                    confidence=confidence
+                                    confidence=confidence,
+                                    model_name=selected_model # 모델 변경 파라미터 적용
                                 )
                                 st.session_state['briefing_cache'] = briefing_text
                         else:
                             briefing_text = st.session_state['briefing_cache']
-
-                        # 4. 최종 출력
+                            
+                        # 4. 최종 출력 (중복 버그 제거됨)
                         st.success(f"**[전문가 3줄 브리핑]**\n\n{briefing_text}")
-                        
-                        with st.spinner("모바일 3줄 브리핑 요약본을 생성하는 중입니다... 📱"):
-                            briefing_text = generate_mobile_briefing(
-                                api_key=gemini_api_key, 
-                                math_patterns_found=math_patterns_found, 
-                                gemini_has_pattern=gemini_has_pattern, 
-                                confidence=confidence
-                            )
-                            # 모바일/태블릿 환경에서 가독성이 좋도록 success 카드로 감싸서 출력
-                            st.success(f"**[전문가 3줄 브리핑]**\n\n{briefing_text}")
+
+                        # --- [Phase 4: 수익화(BM) 로직 - 무료 유저만 광고 노출] ---
+                        if "Free" in user_tier:
+                            show_ad_banner()
 
 # 파이썬 스크립트 실행 진입점
 if __name__ == "__main__":
