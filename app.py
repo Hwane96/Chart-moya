@@ -18,6 +18,7 @@ st.set_page_config(page_title="차트 모야", page_icon="📈", layout="wide")
 # -----------------------------------------------------------------------------
 def inject_custom_css():
     st.markdown("""
+        <style>
         /* 1. 전체 화면 여백 축소 (작은 화면에서 공간 낭비 방지) */
         .block-container {
             padding-top: 2rem !important;
@@ -25,24 +26,24 @@ def inject_custom_css():
             padding-left: 1rem !important;
             padding-right: 1rem !important;
         }
-
+        
         /* 2. 태블릿(세로) 및 모바일 기기에서 컬럼을 강제로 위아래 100% 폭으로 배치 */
         @media (max-width: 992px) {
-            [data-testid="column"] 
+            [data-testid="column"] {
                 width: 100% !important;
                 flex: 1 1 100% !important;
                 min-width: 100% !important;
                 margin-bottom: 1rem;
             }
         }
-
+        
         /* 3. 3줄 브리핑 결과 카드(Success Box)의 텍스트 가독성 및 자간 조정 */
         div[data-testid="stAlert"] {
             font-size: 1.05rem;
             line-height: 1.7;
         }
-    
-    """, unsafe_allow_html=True) 
+        </style>
+    """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
 # 2. 모듈: 데이터 수집 엔진 (캐싱 및 1차 예외처리 적용)
