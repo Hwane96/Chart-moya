@@ -48,6 +48,38 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
+# 1.6. 모듈: 커스텀 배경화면 설정
+# -----------------------------------------------------------------------------
+def set_bg_from_local(image_file):
+    """
+    로컬 이미지 파일을 읽어서 Streamlit 앱의 전체 배경으로 설정하는 함수
+    """
+    with open(image_file, "rb") as f:
+        encoded_string = base64.b64encode(f.read()).decode()
+    
+    st.markdown(
+        f"""
+        <style>
+        /* 전체 앱 배경화면 설정 */
+        .stApp {{
+            background-image: url(data:image/png;base64,{encoded_string});
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }}
+        
+        /* 내용이 들어가는 메인 컨테이너에 반투명 배경을 깔아 글자 가독성 확보 */
+        .block-container {{
+            background-color: rgba(0, 0, 0, 0.7) !important;
+            border-radius: 15px;
+            padding-top: 3rem !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+# -----------------------------------------------------------------------------
 # 2. 모듈: 데이터 수집 엔진 (캐싱 및 1차 예외처리 적용)
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=900) # 15분(900초)마다 캐시 갱신
@@ -443,10 +475,20 @@ def show_ad_banner():
 # -----------------------------------------------------------------------------
 # 5. 메인 애플리케이션 로직
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# 5. 메인 애플리케이션 로직
+# -----------------------------------------------------------------------------
 def main():
-    inject_custom_css() # <-- 이 줄을 추가해 주세요 (모바일 UI 최적화 실행)
-    st.title("📈 차트 모야 - 형태학적 패턴 분석기")
-    st.markdown("수학적 알고리즘(`SciPy`)을 통해 캔들의 의미 있는 **고점과 저점(Local Extrema)**을 정밀하게 추출합니다.")
+    inject_custom_css() # <-- 기존 코드
+    
+    # --- [수정/추가할 부분: 배경화면 적용 함수 호출] ---
+    try:
+        set_bg_from_local("background.png") # 실제 배경 이미지 파일명으로 변경해 주세요!
+    except Exception:
+        pass # 이미지가 없어도 앱이 멈추지 않도록 예외 처리
+        
+    st.title("📈 차트 모야 - 형태학적 패턴 분석기") # <-- 기존 코드
+    st.markdown("수학적 알고리즘(`SciPy`)을 통해 캔들의 의미 있는 **고점과 저점(Local Extrema)**을 정밀하게 추출합니다.") # <-- 기존 코드
     st.divider()
     
    # UI: 사이드바 패널 (입력 폼)
