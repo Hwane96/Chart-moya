@@ -590,18 +590,21 @@ def main():
                     # 안내 문구의 숫자(4개 -> 10개, 15개 -> 9개)를 업데이트
                     st.success("수학적 형태학 패턴 분석이 완료되었습니다. (현재 메이저 10개 패턴 감지 중, 추가 9개 패턴 업데이트 대기 중)")
                 
-                # 트랙 B (유연한 직관: Gemini)
+               # 트랙 B (유연한 직관: Gemini)
                 with col2:
                     st.subheader("👁️ 트랙 B: AI 비전 분석 (유연한 직관)")
                     if gemini_api_key:
-                        # --- [세션 상태(Session State) 기반 API 중복 호출 방지] ---
-                        # 이전 차트 이미지와 현재 이미지가 다를 때만(새로 고침 되었을 때만) API 호출
-                        if ('last_chart_img' not in st.session_state) or (st.session_state['last_chart_img'] != st.session_state['clean_chart']):
+                        # --- [세션 상태 기반 API 중복 호출 방지 (모델 변경 조건 추가)] ---
+                        is_chart_changed = ('last_chart_img' not in st.session_state) or (st.session_state['last_chart_img'] != st.session_state['clean_chart'])
+                        is_model_changed = ('last_model' not in st.session_state) or (st.session_state['last_model'] != selected_model)
+                        
+                        # 차트가 바뀌었거나 OR 멤버십(모델)이 바뀌었을 때만 재호출
+                        if is_chart_changed or is_model_changed:
                             with st.spinner(f"제미나이({selected_model})가 차트를 노려보는 중입니다... 🕵️‍♂️"):
-                                # 2단계에서 수정한 모델 변경 파라미터 적용
                                 gemini_result = analyze_chart_with_gemini(st.session_state['clean_chart'], gemini_api_key, selected_model)
                                 st.session_state['gemini_result_cache'] = gemini_result
                                 st.session_state['last_chart_img'] = st.session_state['clean_chart']
+                                st.session_state['last_model'] = selected_model # 현재 사용한 모델명 세션에 저장
                                 st.session_state['briefing_cache'] = None 
                         else:
                             gemini_result = st.session_state['gemini_result_cache']
