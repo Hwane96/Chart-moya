@@ -1,3 +1,5 @@
+# [수정/추가할 코드 범위: 1. 앱 기본 설정 직전, import 선언부 맨 아래]
+
 import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
@@ -9,6 +11,20 @@ import google.generativeai as genai
 from PIL import Image
 import base64
 import time
+import os
+from dotenv import load_dotenv
+import ccxt
+import pandas as pd
+
+# .env 파일 로드 (보안을 위한 환경 변수 세팅)
+load_dotenv()
+
+# 환경 변수에서 API 키 불러오기
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
+BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY")
+KOREA_INV_APP_KEY = os.getenv("KOREA_INV_APP_KEY")
+KOREA_INV_APP_SECRET = os.getenv("KOREA_INV_APP_SECRET")
+# --- [여기까지 새로 추가하는 코드입니다] ---
 
 # -----------------------------------------------------------------------------
 # 1. 앱 기본 설정 (UI 초기화)
@@ -80,24 +96,74 @@ def set_bg_from_local(image_file):
     )
 
 # -----------------------------------------------------------------------------
-# 2. 모듈: 데이터 수집 엔진 (캐싱 및 1차 예외처리 적용)
+# 2. 모듈: 데이터 수집 엔진 (팩토리 패턴을 통한 다중 소스 분기)
 # -----------------------------------------------------------------------------
-@st.cache_data(ttl=900) # 15분(900초)마다 캐시 갱신
-def fetch_data(ticker, start_date, end_date, interval):
-    """
-    yfinance API를 통해 OHLCV 데이터를 수집하는 함수
-    """
+
+def fetch_crypto_data_binance(ticker, start_date, end_date, interval):
+    """바이낸스 API를 이용한 암호화폐 데이터 수집 (ccxt 활용)"""
+    try:
+        # yfinance 티커(BTC-USD)를 ccxt 바이낸스 티커(BTC/USDT)로 변환
+        symbol = ticker.replace("-USD", "/USDT")
+        binance = ccxt.binance()
+        
+        # 캔들 시간대 맵핑 (yfinance -> ccxt)
+        tf_map = {"1d": "1d", "1wk": "1w", "1mo": "1M", "1h": "1h", "15m": "15m", "5m": "5m"}
+        timeframe = tf_map.get(interval, "1d")
+        
+        # 시작일을 타임스탬프로 변환
+        since = int(time.mktime(start_date.timetuple()) * 1000)
+        
+        # 데이터 수집 (API 딜레이 방지를 위해 limit 1000으로 설정)
+        ohlcv = binance.fetch_ohlcv(symbol, timeframe, since=since, limit=1000)
+        if not ohlcv:
+            return None
+            
+        # 데이터를 Pandas DataFrame으로 변환 및 정제
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'Open', 'High', 'Low', 'Close', 'Volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        df.set_index('timestamp', inplace=True)
+        
+        return df
+    except Exception as e:
+        # 에러 발생 시 None을 반환
+        return None
+
+def fetch_korean_stock_kis(ticker, start_date, end_date, interval):
+    """한국투자증권 API를 이용한 국내 주식 데이터 수집 (뼈대 구축)"""
+    # TODO: 1.1에서 세팅한 KOREA_INV_APP_KEY를 활용해 실제 API 통신 로직 구현 예정
+    # 현재는 구조만 잡아두고, 임시로 yfinance를 우회하여 데이터를 가져오도록 둡니다.
+    try:
+        return fetch_us_stock_yf(ticker + ".KS", start_date, end_date, interval)
+    except Exception:
+        return None
+
+def fetch_us_stock_yf(ticker, start_date, end_date, interval):
+    """야후 파이낸스를 이용한 미국 주식 데이터 수집 (기존 로직 유지)"""
     try:
         end_date_yf = end_date + timedelta(days=1)
         df = yf.download(ticker, start=start_date, end=end_date_yf, interval=interval)
-        
-        # 주말/휴장일 또는 상장폐지로 인해 빈 데이터가 오는 경우 방어
         if df is None or df.empty:
             return None
         return df
     except Exception:
-        # 에러 발생 시 None을 반환하여 메인 로직에서 우아하게(Gracefully) 처리
         return None
+
+@st.cache_data(ttl=900) # 15분(900초)마다 캐시 갱신
+def fetch_data(ticker, start_date, end_date, interval):
+    """
+    입력된 티커(Ticker)의 형태를 분석하여 적절한 거래소(데이터 소스)로 자동 라우팅하는 팩토리 함수
+    """
+    # 1. 코인: '-USD'로 끝나는 경우 바이낸스 엔진으로 분기
+    if ticker.endswith("-USD") or ticker.endswith("/USDT"):
+        return fetch_crypto_data_binance(ticker, start_date, end_date, interval)
+        
+    # 2. 국장: 6자리 숫자로만 이루어진 경우 (예: 005930) 한국투자증권 엔진으로 분기
+    elif ticker.isdigit() and len(ticker) == 6:
+        return fetch_korean_stock_kis(ticker, start_date, end_date, interval)
+        
+    # 3. 미장 등 기타: 야후 파이낸스 엔진(기존)으로 분기
+    else:
+        return fetch_us_stock_yf(ticker, start_date, end_date, interval)
 
 # -----------------------------------------------------------------------------
 # 3. 모듈: 형태학적 패턴 인식 및 보조지표 엔진
@@ -279,6 +345,39 @@ def add_indicators(df):
     
     return df
 
+def calculate_volume_profile(df, bins=50):
+    """
+    가격을 n개의 구간(bins)으로 나누어 매물대(Volume Profile)를 계산하는 함수.
+    향후 거미줄 매매(Grid trading) 셋업을 위한 주요 지지/저항선 탐색에 활용됩니다.
+    """
+    if df is None or df.empty or 'Volume' not in df.columns:
+        return None
+        
+    min_price = df['Low'].min()
+    max_price = df['High'].max()
+    
+    # 가격 구간(bin) 생성
+    price_bins = np.linspace(min_price, max_price, bins)
+    volume_profile = np.zeros(bins - 1)
+    
+    # 각 캔들을 순회하며 해당 가격 구간에 거래량 분배
+    for _, row in df.iterrows():
+        # 캔들의 평균 가격(Typical Price)을 기준으로 처리
+        typical_price = (row['High'] + row['Low'] + row['Close']) / 3
+        bin_idx = np.digitize(typical_price, price_bins) - 1 
+        
+        # 배열 인덱스 초과 방지
+        bin_idx = max(0, min(bin_idx, len(volume_profile) - 1))
+        volume_profile[bin_idx] += row['Volume']
+        
+    # 차트 매핑을 위한 각 구간의 중간 가격 계산
+    bin_centers = (price_bins[:-1] + price_bins[1:]) / 2
+    
+    return pd.DataFrame({
+        'Price': bin_centers,
+        'Volume': volume_profile
+    })
+
 # -----------------------------------------------------------------------------
 # 4. 모듈: 차트 시각화 엔진 (제미나이용 클린 차트 및 사용자용 메인 차트)
 # -----------------------------------------------------------------------------
@@ -304,10 +403,10 @@ def generate_clean_chart_image(df):
     img_bytes = fig.to_image(format="png", width=800, height=600)
     return img_bytes
 
-def draw_candlestick_chart(df, ticker, peaks, valleys, patterns, show_volume, show_sma, show_ema, show_ichimoku, show_rsi):
+def draw_candlestick_chart(df, ticker, peaks, valleys, patterns, show_volume, show_sma, show_ema, show_ichimoku, show_rsi, show_vp=False, vp_df=None):
     fig = go.Figure()
     
-    # 1. 거래량 (Volume) - 캔들 뒤(배경) 하단에 깔리게 가장 먼저 그리기
+    # 1. 거래량 (Volume)
     if show_volume and 'Volume' in df.columns:
         fig.add_trace(go.Bar(
             x=df.index, y=df['Volume'], name='거래량',
@@ -315,7 +414,7 @@ def draw_candlestick_chart(df, ticker, peaks, valleys, patterns, show_volume, sh
             yaxis='y2'
         ))
         
-    # 2. 캔들스틱 차트 (메인)
+    # 2. 캔들스틱 차트
     fig.add_trace(go.Candlestick(
         x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
         name=ticker, increasing_line_color='red', decreasing_line_color='blue'
@@ -334,18 +433,15 @@ def draw_candlestick_chart(df, ticker, peaks, valleys, patterns, show_volume, sh
     for v1, v2, v3 in patterns['inv_hns']:
         fig.add_trace(go.Scatter(x=[df.index[v1], df.index[v2], df.index[v3]], y=[df['Low'].iloc[v1], df['Low'].iloc[v2], df['Low'].iloc[v3]], mode='lines+markers', line=dict(color='cyan', width=3), name='역헤드앤숄더'))
         
-    # --- 새로 추가되는 수렴형 및 지속형 패턴 시각화 (추세선 그리기) ---
-    # 수렴형 패턴 (어센딩, 디센딩, 대칭 삼각수렴) - 보라색 실선 추세선
     for p1, p2, v1, v2 in patterns['asc_triangle'] + patterns['desc_triangle'] + patterns['sym_triangle']:
         fig.add_trace(go.Scatter(x=[df.index[p1], df.index[p2]], y=[df['High'].iloc[p1], df['High'].iloc[p2]], mode='lines', line=dict(color='#E040FB', width=2), name='상단 추세선'))
         fig.add_trace(go.Scatter(x=[df.index[v1], df.index[v2]], y=[df['Low'].iloc[v1], df['Low'].iloc[v2]], mode='lines', line=dict(color='#E040FB', width=2), name='하단 추세선'))
         
-    # 지속형 패턴 (박스권, 깃발형, 페넌트) - 연두색 점선 채널
     for p1, p2, v1, v2 in patterns['rectangle'] + patterns['flag'] + patterns['pennant']:
         fig.add_trace(go.Scatter(x=[df.index[p1], df.index[p2]], y=[df['High'].iloc[p1], df['High'].iloc[p2]], mode='lines', line=dict(color='#69F0AE', width=2, dash='dash'), name='채널 상단'))
         fig.add_trace(go.Scatter(x=[df.index[v1], df.index[v2]], y=[df['Low'].iloc[v1], df['Low'].iloc[v2]], mode='lines', line=dict(color='#69F0AE', width=2, dash='dash'), name='채널 하단'))
         
-    # 4. 선택형 보조지표 레이어 추가
+    # 4. 선택형 보조지표 레이어
     if show_sma:
         if 'SMA_7' in df.columns: fig.add_trace(go.Scatter(x=df.index, y=df['SMA_7'], mode='lines', line=dict(color='#FFF59D', width=1), name='SMA(7)'))
         if 'SMA_20' in df.columns: fig.add_trace(go.Scatter(x=df.index, y=df['SMA_20'], mode='lines', line=dict(color='#FBC02D', width=1.5), name='SMA(20)'))
@@ -367,15 +463,30 @@ def draw_candlestick_chart(df, ticker, peaks, valleys, patterns, show_volume, sh
             
     if show_rsi and 'RSI' in df.columns:
         fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], mode='lines', line=dict(color='orange', width=1.5), name='RSI', yaxis='y3'))
+
+    # 5. 매물대(Volume Profile) 레이어 추가
+    if show_vp and vp_df is not None:
+        fig.add_trace(go.Bar(
+            x=vp_df['Volume'], 
+            y=vp_df['Price'],
+            orientation='h',
+            name='매물대',
+            marker=dict(color='rgba(0, 150, 255, 0.3)', line=dict(color='rgba(0, 150, 255, 0.6)', width=1)),
+            xaxis='x2',
+            yaxis='y'
+        ))
         
-    # 레이아웃: 다중 축을 이용해 겹치지 않고 보기 좋게 배치
     vol_max = df['Volume'].max() if 'Volume' in df.columns else 1
+    vp_max = vp_df['Volume'].max() if (show_vp and vp_df is not None) else 1
+    
     fig.update_layout(
-        title=f"{ticker} 패턴 분석", yaxis_title="가격", xaxis_title="날짜", template="plotly_dark", 
+        title=f"{ticker} 패턴 및 매물대 분석", yaxis_title="가격", xaxis_title="날짜", template="plotly_dark", 
         xaxis_rangeslider_visible=False, margin=dict(l=20, r=20, t=50, b=20), hovermode='x unified',
         yaxis=dict(title="가격"),
         yaxis2=dict(overlaying='y', side='left', showgrid=False, visible=False, range=[0, vol_max * 4]),
-        yaxis3=dict(title="RSI", overlaying='y', side='right', showgrid=False, range=[0, 100])
+        yaxis3=dict(title="RSI", overlaying='y', side='right', showgrid=False, range=[0, 100]),
+        # 매물대용 보조 x축 추가
+        xaxis2=dict(overlaying='x', side='top', showgrid=False, visible=False, range=[0, vp_max * 4])
     )
     return fig
 
@@ -519,6 +630,7 @@ def main():
         show_ema = st.checkbox("EMA (7, 20, 50, 100일)", value=False)
         show_ichimoku = st.checkbox("일목균형표 (Ichimoku Cloud)", value=False)
         show_rsi = st.checkbox("RSI (상대강도지수)", value=False)
+        show_vp = st.checkbox("매물대 (Volume Profile)", value=True)
         
         st.write("") # 버튼 위 여백
         analyze_button = st.button("🚀 분석 시작하기", type="primary", use_container_width=True)
@@ -560,10 +672,11 @@ def main():
                 
                 # 3단계: 패턴 찾기 (노이즈가 제거된 핵심 파동 위주로 탐색)
                 patterns = detect_patterns(df, peaks, valleys, tolerance)                
+                vp_df = calculate_volume_profile(df) if show_vp else None
                 
                 # 4단계: 차트 그리기
                 fig = draw_candlestick_chart(df, ticker, peaks, valleys, patterns,
-                                             show_volume, show_sma, show_ema, show_ichimoku, show_rsi)
+                                             show_volume, show_sma, show_ema, show_ichimoku, show_rsi, show_vp, vp_df)
                 
                 # Streamlit에 차트 띄우기
                 st.plotly_chart(fig, use_container_width=True)
@@ -587,29 +700,52 @@ def main():
                     # 안내 문구의 숫자(4개 -> 10개, 15개 -> 9개)를 업데이트
                     st.success("수학적 형태학 패턴 분석이 완료되었습니다. (현재 메이저 10개 패턴 감지 중, 추가 9개 패턴 업데이트 대기 중)")
                 
-               # 트랙 B (유연한 직관: Gemini)
+               # 트랙 B (유연한 직관: Gemini 또는 패턴 이미지)
                 with col2:
                     st.subheader("👁️ 트랙 B: AI 비전 분석 (유연한 직관)")
-                    if gemini_api_key:
-                        # --- [세션 상태 기반 API 중복 호출 방지 (모델 변경 조건 추가)] ---
-                        is_chart_changed = ('last_chart_img' not in st.session_state) or (st.session_state['last_chart_img'] != st.session_state['clean_chart'])
-                        is_model_changed = ('last_model' not in st.session_state) or (st.session_state['last_model'] != selected_model)
+                    
+                    # --- [무료 회원(Free) 로직: 제미나이 대신 로컬 예시 이미지 제공] ---
+                    if "Free" in user_tier:
+                        st.info("💡 **무료 버전 제공:** 현재 차트에서 감지된 주요 패턴의 표준 예시입니다.")
                         
-                        # 차트가 바뀌었거나 OR 멤버십(모델)이 바뀌었을 때만 재호출
-                        if is_chart_changed or is_model_changed:
-                            with st.spinner(f"제미나이({selected_model})가 차트를 노려보는 중입니다... 🕵️‍♂️"):
-                                gemini_result = analyze_chart_with_gemini(st.session_state['clean_chart'], gemini_api_key, selected_model)
-                                st.session_state['gemini_result_cache'] = gemini_result
-                                st.session_state['last_chart_img'] = st.session_state['clean_chart']
-                                st.session_state['last_model'] = selected_model # 현재 사용한 모델명 세션에 저장
-                                st.session_state['briefing_cache'] = None 
-                        else:
-                            gemini_result = st.session_state['gemini_result_cache']
-                            st.toast("⚡ 기존 AI 분석 결과를 즉시 불러왔습니다! (API 호출 스킵)")
-                        st.markdown(gemini_result)
+                        # 감지된 패턴 우선순위에 따라 1개의 대표 이미지를 출력
+                        try:
+                            if len(patterns['hns']) > 0:
+                                st.image("assets/hns.png", caption="📖 감지된 패턴: 헤드앤숄더 (하락 반전)", use_column_width=True)
+                            elif len(patterns['inv_hns']) > 0:
+                                st.image("assets/inv_hns.png", caption="📖 감지된 패턴: 역헤드앤숄더 (상승 반전)", use_column_width=True)
+                            elif len(patterns['double_top']) > 0:
+                                st.image("assets/double_top.png", caption="📖 감지된 패턴: 쌍봉 (하락 반전)", use_column_width=True)
+                            elif len(patterns['double_bottom']) > 0:
+                                st.image("assets/double_bottom.png", caption="📖 감지된 패턴: 쌍바닥 (상승 반전)", use_column_width=True)
+                            else:
+                                st.warning("현재 명확한 넥라인을 가진 반전 패턴이 감지되지 않았습니다.")
+                        except FileNotFoundError:
+                            st.error("⚠️ 패턴 예시 이미지가 아직 업로드되지 않았습니다. (추후 assets 폴더에 추가 예정)")
+                            
+                        st.success("💎 **Premium 멤버십 혜택:** 제미나이 Pro AI의 정밀 차트 분석 리포트와 분할 매매(거미줄 매매) 타점 추천을 받아보세요!")
+                        gemini_result = None # 무료 회원은 Phase 3 브리핑 생성을 위해 None으로 처리
+                        
+                    # --- [유료 회원(Premium) 로직: 기존 제미나이 AI 시각 분석 수행] ---
                     else:
-                        st.info("👈 사이드바에 Gemini API Key를 입력하시면 AI 직관 분석 결과를 볼 수 있습니다.")
-                        gemini_result = None
+                        if gemini_api_key:
+                            is_chart_changed = ('last_chart_img' not in st.session_state) or (st.session_state['last_chart_img'] != st.session_state['clean_chart'])
+                            is_model_changed = ('last_model' not in st.session_state) or (st.session_state['last_model'] != selected_model)
+                            
+                            if is_chart_changed or is_model_changed:
+                                with st.spinner(f"제미나이({selected_model})가 차트를 노려보는 중입니다... 🕵️‍♂️"):
+                                    gemini_result = analyze_chart_with_gemini(st.session_state['clean_chart'], gemini_api_key, selected_model)
+                                    st.session_state['gemini_result_cache'] = gemini_result
+                                    st.session_state['last_chart_img'] = st.session_state['clean_chart']
+                                    st.session_state['last_model'] = selected_model 
+                                    st.session_state['briefing_cache'] = None 
+                            else:
+                                gemini_result = st.session_state['gemini_result_cache']
+                                st.toast("⚡ 기존 AI 분석 결과를 즉시 불러왔습니다! (API 호출 스킵)")
+                            st.markdown(gemini_result)
+                        else:
+                            st.info("👈 사이드바에 Gemini API Key를 입력하시면 AI 직관 분석 결과를 볼 수 있습니다.")
+                            gemini_result = None
                         
                 # --- Phase 3: 교차 검증 및 브리핑 로직 ---
                 if gemini_api_key and gemini_result:
