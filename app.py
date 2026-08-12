@@ -378,6 +378,36 @@ def calculate_volume_profile(df, bins=50):
         'Volume': volume_profile
     })
 
+def calculate_grid_targets(df, vp_df):
+    """
+    매물대(Volume Profile) 데이터를 바탕으로 현재 가격 기준 주요 지지선(매수 타점)과 
+    저항선(매도 타점)을 3차까지 계산하여 반환하는 함수
+    """
+    if df is None or df.empty or vp_df is None or vp_df.empty:
+        return None, None
+        
+    current_price = df['Close'].iloc[-1]
+    
+    # 거래량이 많은 순으로 정렬하여 핵심 매물대(High Volume Nodes) 추출
+    sorted_vp = vp_df.sort_values(by='Volume', ascending=False)
+    
+    # 현재가보다 낮은 가격대 -> 지지선 (Support)
+    supports = sorted_vp[sorted_vp['Price'] < current_price]['Price'].head(3).tolist()
+    # 현재가보다 높은 가격대 -> 저항선 (Resistance)
+    resistances = sorted_vp[sorted_vp['Price'] > current_price]['Price'].head(3).tolist()
+    
+    # 데이터가 부족해 타점이 3개가 안 될 경우, 현재가 대비 2% 간격으로 임시 계산하여 채워넣음
+    for i in range(3 - len(supports)):
+        supports.append(current_price * (1 - 0.02 * (i + 1)))
+    for i in range(3 - len(resistances)):
+        resistances.append(current_price * (1 + 0.02 * (i + 1)))
+        
+    # 가격 순으로 정렬 (지지선은 현재가에서 가까운 순서대로 / 저항선도 현재가에서 가까운 순서대로)
+    supports.sort(reverse=True)
+    resistances.sort()
+    
+    return supports, resistances
+
 # -----------------------------------------------------------------------------
 # 4. 모듈: 차트 시각화 엔진 (제미나이용 클린 차트 및 사용자용 메인 차트)
 # -----------------------------------------------------------------------------
@@ -584,6 +614,19 @@ def show_ad_banner():
     """, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
+# 4.9. 모듈: 상태(Session) 초기화 콜백
+# -----------------------------------------------------------------------------
+def reset_analysis_state():
+    """
+    사용자가 종목 코드, 멤버십 등급, 캔들 시간대 등을 변경했을 때
+    기존에 남아있던 AI 분석 잔상과 캐시를 깔끔하게 지워주는 콜백 함수
+    """
+    keys_to_clear = ['gemini_result_cache', 'briefing_cache', 'clean_chart', 'last_chart_img', 'last_model']
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+
+# -----------------------------------------------------------------------------
 # 5. 메인 애플리케이션 로직
 # -----------------------------------------------------------------------------
 def main():
@@ -607,14 +650,14 @@ def main():
         # --- [Phase 4: 유저 등급 선택 UI 추가] ---
         st.divider()
         st.header("💎 멤버십 설정")
-        user_tier = st.radio("유저 등급 선택 (가상)", ["Free (광고O, Flash모델)", "Premium (광고X, Pro모델)"])
+        user_tier = st.radio("유저 등급 선택 (가상)", ["Free (광고O, Flash모델)", "Premium (광고X, Pro모델)"], on_change=reset_analysis_state)
         # 등급에 따른 모델 동적 할당
         selected_model = "gemini-1.5-pro" if "Premium" in user_tier else "gemini-1.5-flash"
         
         st.divider()
         st.header("📊 분석 설정")
-        ticker = st.text_input("종목 코드 입력", value="BTC-USD")
-        interval = st.selectbox("캔들 시간대", options=["1d", "1wk", "1mo", "1h", "15m", "5m"], index=0)
+        ticker = st.text_input("종목 코드 입력", value="BTC-USD", on_change=reset_analysis_state)
+        interval = st.selectbox("캔들 시간대", options=["1d", "1wk", "1mo", "1h", "15m", "5m"], index=0, on_change=reset_analysis_state)
         start_date = st.date_input("시작일", datetime.today() - timedelta(days=180))
         end_date = st.date_input("종료일", datetime.today())
         
@@ -641,15 +684,19 @@ def main():
             st.warning("⚠️ 시작일은 종료일보다 이전이어야 합니다. 날짜를 다시 설정해 주세요.")
             return
             
-        with st.spinner("데이터 수집 및 패턴 분석 중..."):
-            # 1단계: 캐싱된 데이터 가져오기
-            df = fetch_data(ticker, start_date, end_date, interval)
-            
-            # 철벽 방어: 데이터 검증
-            if df is None or df.empty:
-                st.error("❌ 데이터를 불러올 수 없습니다. 종목 코드(Ticker)가 올바른지, 혹은 해당 기간이 휴장일인지 확인해 주세요.")
-            else:
-                st.success(f"✅ [{ticker}] 데이터를 성공적으로 불러왔습니다!")
+        with st.spinner("데이터 수집 및 패턴 분석 중... 📊"):
+            try:
+                # 1단계: 캐싱된 데이터 가져오기
+                df = fetch_data(ticker, start_date, end_date, interval)
+                
+                # 철벽 방어 1: 데이터가 없거나 서버 오류일 때
+                if df is None or df.empty:
+                    st.error("❌ 데이터를 불러올 수 없습니다. 종목 코드(Ticker)가 올바른지, 혹은 거래소 서버 상태를 확인해 주세요.")
+                # 철벽 방어 2: 데이터가 너무 적어 알고리즘이 터지는 현상 방지 (최소 50봉 요구)
+                elif len(df) < 50:
+                    st.warning(f"⚠️ 분석에 필요한 캔들 데이터가 부족합니다. (현재 {len(df)}개 / 최소 50개 필요)\n\n조회 기간(시작일~종료일)을 더 넓게 설정해 주세요.")
+                else:
+                    st.success(f"✅ [{ticker}] 데이터를 성공적으로 불러왔습니다! (총 {len(df)}봉)")
                 
                 # 지표 계산 연산
                 df = add_indicators(df)
@@ -789,10 +836,41 @@ def main():
                             
                         # 4. 최종 출력 (중복 버그 제거됨)
                         st.success(f"**[전문가 3줄 브리핑]**\n\n{briefing_text}")
+                        
+                        # --- [여기서부터 추가되는 Premium 유저 전용 로직: 분할 매매(거미줄) 타점 추천] ---
+                        if "Premium" in user_tier:
+                            st.divider()
+                            st.subheader("🎯 Premium 전용: 매물대 기반 거미줄 타점 셋업")
+                            st.markdown("가장 두터운 매물대(Volume Profile)를 기준으로 산출된 1~3차 진입 및 청산 목표가입니다.")
+                            
+                            supports, resistances = calculate_grid_targets(df, vp_df if 'vp_df' in locals() else None)
+                            
+                            if supports and resistances:
+                                current_p = df['Close'].iloc[-1]
+                                st.metric("현재가 (Current Price)", f"{current_p:,.2f}")
+                                
+                                target_col1, target_col2 = st.columns(2)
+                                with target_col1:
+                                    st.info(f"🔽 **분할 매수 (지지선)**\n\n"
+                                            f"**1차 진입:** {supports[0]:,.2f}\n\n"
+                                            f"**2차 진입:** {supports[1]:,.2f}\n\n"
+                                            f"**3차 진입:** {supports[2]:,.2f}")
+                                with target_col2:
+                                    st.error(f"🔼 **분할 매도 (저항선)**\n\n"
+                                             f"**1차 목표:** {resistances[0]:,.2f}\n\n"
+                                             f"**2차 목표:** {resistances[1]:,.2f}\n\n"
+                                             f"**3차 목표:** {resistances[2]:,.2f}")
+                        # --- [여기까지 Premium 전용 로직] ---
 
                         # --- [Phase 4: 수익화(BM) 로직 - 무료 유저만 광고 노출] ---
                         if "Free" in user_tier:
                             show_ad_banner()
+                            
+            except Exception as e:
+                # 철벽 방어 3: 앱 크래시 방지 및 우아한 에러 메시지 출력
+                st.error("🚨 분석 처리 중 예상치 못한 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
+                with st.expander("개발자용 에러 상세 로그 보기"):
+                    st.code(str(e))
 
 # 파이썬 스크립트 실행 진입점
 if __name__ == "__main__":
