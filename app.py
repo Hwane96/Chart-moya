@@ -671,7 +671,13 @@ def main():
         show_volume = st.checkbox("거래량 (Volume)", value=True)
         show_sma = st.checkbox("SMA (7, 20, 50, 100일)", value=False)
         show_ema = st.checkbox("EMA (7, 20, 50, 100일)", value=False)
-        show_ichimoku = st.checkbox("일목균형표 (Ichimoku Cloud)", value=False)
+
+        if interval in ["1d", "1wk", "1mo"]:
+            show_ichimoku = st.checkbox("일목균형표 (Ichimoku Cloud)", value=False)
+        else:
+             show_ichimoku = False
+             st.caption("※ 일목균형표는 일봉(1d) 이상에서만 지원됩니다.")        
+
         show_rsi = st.checkbox("RSI (상대강도지수)", value=False)
         show_vp = st.checkbox("매물대 (Volume Profile)", value=True)
         
