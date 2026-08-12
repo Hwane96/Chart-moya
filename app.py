@@ -862,15 +862,15 @@ def main():
                                              f"**3차 목표:** {resistances[2]:,.2f}")
                         # --- [여기까지 Premium 전용 로직] ---
 
-                        # --- [Phase 4: 수익화(BM) 로직 - 무료 유저만 광고 노출] ---
-                        if "Free" in user_tier:
-                            show_ad_banner()
+                # 👇 [수정된 부분]: 들여쓰기를 왼쪽으로 쫙 뺐어!
+                # --- [Phase 4: 수익화(BM) 로직 - 무료 유저만 광고 노출] ---
+                if "Free" in user_tier:
+                    st.divider()
+                    show_ad_banner()
                             
             except Exception as e:
                 # 철벽 방어 3: 앱 크래시 방지 및 우아한 에러 메시지 출력
                 st.error("🚨 분석 처리 중 예상치 못한 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.")
-                with st.expander("개발자용 에러 상세 로그 보기"):
-                    st.code(str(e))
 
 # 파이썬 스크립트 실행 진입점
 if __name__ == "__main__":
