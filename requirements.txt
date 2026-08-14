@@ -3,5 +3,8 @@ yfinance
 plotly
 scipy
 numpy
-Pillow
 google-generativeai
+Pillow
+python-dotenv
+ccxt
+pandas
